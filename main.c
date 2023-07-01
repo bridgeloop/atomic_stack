@@ -71,7 +71,7 @@ bool pop(struct atomic_stack *stack, bool block, void **out) {
 	if (idx >= stack->cap) {
 		do {
 			atomic_compare_exchange_strong(&(stack->idx), &(idx), stack->cap);
-		} while (idx >= stack->cap);
+		} while (idx > stack->cap);
 		goto entry;
 	}
 	if (idx < 0) {
