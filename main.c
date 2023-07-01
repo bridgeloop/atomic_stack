@@ -113,6 +113,7 @@ void drop(struct atomic_stack *stack, void (*callback)(struct atomic_stack *stac
 }
 
 #include <stdio.h>
+#include <pthread.h>
 #define STRINGBOOL(b) (b ? "true" : "false")
 void callback(struct atomic_stack *stack, void *_) {
 	void *ptr;
@@ -121,9 +122,28 @@ void callback(struct atomic_stack *stack, void *_) {
 	}
 	return;
 }
+void *thread(void *stack_void) {
+	struct atomic_stack *stack = stack_void;
+
+	for (int it = 0; it < 64; ++it) {
+		push(stack, false, NULL);
+	}
+
+	drop(stack, callback, NULL);
+	return NULL;
+}
 int main(void) {
 	struct atomic_stack *stack = new(128);
-	printf("%s\n", STRINGBOOL(push(stack, false, NULL)));
+
+	pthread_t ids[16];
+	for (uint_fast16_t idx = 0; idx < 16; ++idx) {
+		pthread_create(&(ids[idx]), NULL, thread, clone_ref(stack));
+	}
 	drop(stack, callback, NULL);
+
+	for (uint_fast16_t idx = 0; idx < 16; ++idx) {
+		pthread_join(ids[idx], NULL);
+	}
+
 	return 0;
 }
