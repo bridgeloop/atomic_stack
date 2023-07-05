@@ -23,6 +23,9 @@ struct atomic_stack {
 	alignas(CACHELINE) struct atomic_stack_field fields[];
 };
 struct atomic_stack *new(int_fast64_t n) {
+	if (n <= 0) {
+		return NULL;
+	}
 	struct atomic_stack *stack = malloc(sizeof(struct atomic_stack) + sizeof(struct atomic_stack_field) * n);
 	if (stack == NULL) {
 		return NULL;
@@ -32,7 +35,7 @@ struct atomic_stack *new(int_fast64_t n) {
 	stack->idx = 0;
 	return stack;
 }
-bool push(struct atomic_stack *stack, bool block, void *ptr) {
+bool push(struct atomic_stack *stack, bool block, void *ptr, void (*callback)(void *), void *callback_arg) {
 	entry:;
 	int_fast64_t idx = atomic_fetch_add(&(stack->idx), 1);
 	if (idx < 0) {
@@ -60,12 +63,15 @@ bool push(struct atomic_stack *stack, bool block, void *ptr) {
 	}
 
 	field->ptr = ptr;
+	if (callback != NULL) {
+		callback(callback_arg);
+	}
 
 	atomic_store(&(field->state), asfs_ready);
 	return true;
 }
 #define atomic_sub_fetch(object, operand) (atomic_fetch_sub(object, operand) - operand)
-bool pop(struct atomic_stack *stack, bool block, void **out) {
+bool pop(struct atomic_stack *stack, bool block, void **out, void (*callback)(void *), void *callback_arg) {
 	entry:;
 	int_fast64_t idx = atomic_sub_fetch(&(stack->idx), 1);
 	if (idx >= stack->cap) {
@@ -93,6 +99,9 @@ bool pop(struct atomic_stack *stack, bool block, void **out) {
 	}
 
 	*out = field->ptr;
+	if (callback != NULL) {
+		callback(callback_arg);
+	}
 
 	atomic_store(&(field->state), asfs_available);
 	return true;
@@ -117,7 +126,7 @@ void drop(struct atomic_stack *stack, void (*callback)(struct atomic_stack *stac
 #define STRINGBOOL(b) (b ? "true" : "false")
 void callback(struct atomic_stack *stack, void *_) {
 	void *ptr;
-	while (pop(stack, false, &(ptr))) {
+	while (pop(stack, false, &(ptr), NULL, NULL)) {
 		printf("%p\n", ptr);
 	}
 	return;
@@ -125,15 +134,26 @@ void callback(struct atomic_stack *stack, void *_) {
 void *thread(void *stack_void) {
 	struct atomic_stack *stack = stack_void;
 
-	for (int it = 0; it < 64; ++it) {
-		push(stack, false, NULL);
+	for (int it = 0; it < 1024; ++it) {
+		push(stack, false, NULL, NULL, NULL);
+	}
+	for (int it = 0; it < 1024; ++it) {
+		void *x;
+		pop(stack, false, &(x), NULL, NULL);
 	}
 
 	drop(stack, callback, NULL);
 	return NULL;
 }
 int main(void) {
-	struct atomic_stack *stack = new(128);
+	struct atomic_stack *stack = new(1024);
+	
+	for (int it = 0; it < 1000000; ++it) {
+		bool x = push(stack, false, NULL, NULL, NULL);
+		if ((it < 1024 && !x) || (it >= 1024 && x)) abort();
+	}
+	void *x;
+	printf("%s\n", STRINGBOOL(pop(stack, false, &(x), NULL, NULL)));
 
 	pthread_t ids[16];
 	for (uint_fast16_t idx = 0; idx < 16; ++idx) {
