@@ -111,10 +111,10 @@ struct atomic_stack *clone_ref(struct atomic_stack *stack) {
 	atomic_fetch_add(&(stack->rc), 1);
 	return stack;
 }
-void drop(struct atomic_stack *stack, void (*callback)(struct atomic_stack *stack, void *arg), void *callback_arg) {
+void drop(struct atomic_stack *stack, void (*callback)(void *arg), void *callback_arg) {
 	if (atomic_sub_fetch(&(stack->rc), 1) == 0) {
 		if (callback != NULL && stack->idx > 0) {
-			callback(stack, callback_arg);
+			callback(callback_arg);
 		}
 		free(stack);
 	}
@@ -124,7 +124,8 @@ void drop(struct atomic_stack *stack, void (*callback)(struct atomic_stack *stac
 #include <stdio.h>
 #include <pthread.h>
 #define STRINGBOOL(b) (b ? "true" : "false")
-void callback(struct atomic_stack *stack, void *_) {
+void callback(void *stack_void) {
+	struct atomic_stack *stack = stack_void;
 	void *ptr;
 	while (pop(stack, false, &(ptr), NULL, NULL)) {
 		printf("%p\n", ptr);
@@ -142,7 +143,7 @@ void *thread(void *stack_void) {
 		pop(stack, false, &(x), NULL, NULL);
 	}
 
-	drop(stack, callback, NULL);
+	drop(stack, callback, stack);
 	return NULL;
 }
 int main(void) {
@@ -159,7 +160,7 @@ int main(void) {
 	for (uint_fast16_t idx = 0; idx < 16; ++idx) {
 		pthread_create(&(ids[idx]), NULL, thread, clone_ref(stack));
 	}
-	drop(stack, callback, NULL);
+	drop(stack, callback, stack);
 
 	for (uint_fast16_t idx = 0; idx < 16; ++idx) {
 		pthread_join(ids[idx], NULL);
